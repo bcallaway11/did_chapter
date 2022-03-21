@@ -109,13 +109,24 @@ csX_res <- att_gt(yname="lemp",
                  xformla=~lpop + lavg_pay + region,
                  base_period ="varying",
                  control_group="nevertreated")
+
+# print group-time average treatment effects
 csX_res
 
+# event study
 csX_dyn <- aggte(csX_res, type="dynamic", na.rm=TRUE)
+csX_dyn
+
+# overall ATT
 csX_o <- aggte(csX_res, type="group", na.rm=TRUE)
+csX_o
+
+# plot event study (other plots similar)
 ggdid(csX_dyn)
 
-# twfe regression using different data
+#-----------------------------------------------------------------------------
+# twfe regressions using different data
+#-----------------------------------------------------------------------------
 twfe1 <- feols(lemp ~ treated | countyreal + year,
                data=data)
 twfe2 <- feols(lemp ~ treated | countyreal + year,
@@ -127,15 +138,20 @@ twfe4 <- feols(lemp ~ treated | countyreal + year,
 twfe5 <- feols(lemp ~ treated | countyreal + year,
                data=data5)
 
-twfe_covs <- feols(lemp ~ treated + as.factor(year)*as.factor(region) + lpop + lavg_pay | countyreal, data=data4)
+# twfe with covariates; in chapter this is reported
+# with for `data2` and `data4`
+twfe_covs <- feols(lemp ~ treated + as.factor(year)*as.factor(region) + lpop + lavg_pay | countyreal, data=data2)
 
+# print results
 modelsummary(list(twfe1, twfe2, twfe3, twfe4, twfe5),
              output="latex",
              stars=TRUE)
 
-# run bacon decomposition
+#-----------------------------------------------------------------------------
+# bacon decomposition
+#-----------------------------------------------------------------------------
 bacon_res <- bacon(lemp ~ post, 
-                   data=data5,
+                   data=data2,
                    id_var="countyreal",
                    time_var="year")
 
@@ -148,20 +164,14 @@ bacon_res
 # get weights by type
 aggregate(bacon_res$weight, by=list(bacon_res$type), sum)
 
-# find fraction of "good" weight on particular group
-this_group <- 2007
-good_weight <- subset(bacon_res, type %in% c("Earlier vs Later Treated", "Treated vs Untreated"))
-
-sum(good_weight[good_weight$treated==this_group,]$weight) / sum(good_weight$weight)
-
+# find fraction of weight on particular group
+this_group <- 2006
 sum(bacon_res[bacon_res$treated==this_group,]$weight)
 
-
+# compare to relative size of group
 mean(data2$G==this_group)/mean(data2$G>0)
 
-mean(data2$G==2007)/mean(data2$G>0)
-
-# plot
+# bacon decomposition plot; this is not reported in chapter
 ggplot(data=bacon_res, 
        mapping=aes(x=weight,
                    y=estimate,
@@ -172,14 +182,20 @@ ggplot(data=bacon_res,
   theme(legend.position="bottom")
 
 
-
-# twfe event study
+#-----------------------------------------------------------------------------
+# event study regression
+#-----------------------------------------------------------------------------
+# which data to use in this section
 this_data <- data2
 
+# add event time variable
 this_data$e <- ifelse(this_data$G==0, 0, this_data$year - this_data$G)
 
+# run event study regression
 twfe_es <- feols(lemp ~ i(e, ever_treated, ref=-1) | countyreal + year,
                  data=this_data)
+
+# summary and plot
 summary(twfe_es)
 iplot(twfe_es)
 
@@ -416,92 +432,3 @@ createSensitivityPlot(hd_lt2$robust_ci,
                       hd_lt2$orig_ci)
 
 
-#-----------------------------------------------------------------------------
-#
-# imputation estimator
-#
-#-----------------------------------------------------------------------------
-
-compute.did_imputation <- function(upo_formula,
-                                   data,
-                                   treatedname,
-                                   gname,
-                                   event_times) {
-
-  untreated_data <- data[data[,treatedname]==0,]
-
-  untreated_twfe <- feols(upo_formula,
-                          data=untreated_data)
-
-  data$.imputation <- predict(untreated_twfe, newdata=data)
-
-  imputation_event_study <- function(event_time) {
-    this_data <- subset(data, e==event_time)
-    mean(this_data$lemp - this_data$.imputation, na.rm=TRUE)
-  }
-
-  ies <- sapply(event_times, imputation_event_study)
-
-  #glist <- sort(unique(data[,gname]))
-  
-  return(list(imputation_event_study=ies, imputation_overall_att=0))
-}
-
-
-data <- as.data.frame(data)
-compute.did_imputation(lemp ~ lpop + lavg_pay | countyreal + year + region^year, data=subset(data,G!=2001), treatedname="treated", gname="G", event_times=-6:6)
-
-did_imputation <- function(upo_formula,
-                           data,
-                           treatedname,
-                           gname,
-                           idname,
-                           event_times,
-                           biters=100,
-                           cl=1) {
-
-  est <- compute.did_imputation(upo_formula=upo_formula,
-                                data=data,
-                                treatedname=treatedname,
-                                gname=gname,
-                                event_times=event_times)
-
-  
-  # bootstrap
-  cat("bootstrapping...\n")
-  boot_out <- pblapply(1:biters, function(b) {
-    boot_data <- blockBootSample(data, idname)
-    boot_est <- compute.did_imputation(upo_formula=upo_formula,
-                                       data=boot_data,
-                                       treatedname=treatedname,
-                                       gname=gname,
-                                       event_times=event_times)
-    boot_est
-  }, cl=cl)
-
-  boot_es <- t(simplify2array(BMisc::getListElement(boot_out, "imputation_event_study")))
-  es_se <- apply(boot_es, 2, sd)
-  o_se <- 0
-  return(list(es=est$imputation_event_study, overall=est$imputation_overall_att, es_se=es_se, o_se=o_se))
-}
-
-did_imp <- did_imputation(lemp ~ lpop + lavg_pay | countyreal + year + region^year,
-                          data=subset(data,G!=2001),
-                          treatedname="treated",
-                          gname="G",
-                          idname="countyreal",
-                          event_times=-6:6,
-                          biters=100)
-
-imp_plot_df <- cbind.data.frame(att=did_imp$es, ciL=did_imp$es-1.96*did_imp$es_se, ciU=did_imp$es + 1.96*did_imp$es_se, e=-6:6, type="Imputation")
-plot_df1 <- cbind.data.frame(att=csX_dyn$att.egt, ciL=csX_dyn$att.egt-1.96*csX_dyn$se.egt, ciU=csX_dyn$att.egt+1.96*csX_dyn$se.egt, e=csX_dyn$egt, type="CS")
-plot_df <- rbind.data.frame(plot_df1, imp_plot_df)
-
-ggplot(data=plot_df, mapping=aes(x=e,y=att,color=type,fill=type)) +
-  geom_point(position=position_dodge(width=.2)) +
-  geom_errorbar(aes(ymin=ciL, ymax=ciU), position=position_dodge(width=.2), width=.5) +
-  theme_classic() +
-  scale_x_continuous(breaks=seq(-6,6)) +
-  theme(legend.position="bottom")
-
-ggsave("cs_imp_es_comparison_covs.pdf", height=5, width=8)
