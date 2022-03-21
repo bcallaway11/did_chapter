@@ -1,3 +1,12 @@
+#-----------------------------------------------------------------------------
+#
+# Main file for DID chapter
+#
+#-----------------------------------------------------------------------------
+
+#-----------------------------------------------------------------------------
+# load external packages
+#-----------------------------------------------------------------------------
 library(did)
 library(BMisc)
 library(fixest)
@@ -6,7 +15,9 @@ library(ggplot2)
 library(modelsummary)
 library(HonestDiD)
 
-# setup data
+#-----------------------------------------------------------------------------
+# load/process data
+#-----------------------------------------------------------------------------
 load("mw_data_ch.RData")
 data <- mw_data_ch
 rm(mw_data_ch)
@@ -23,14 +34,25 @@ data$region <- 1*(data$censusdiv==1 | data$censusdiv==2) + 2*(data$censusdiv==3 
 data$region <- as.factor(data$region)
 data$ever_treated <- 1*(data$G != 0)
 
-# different subsets of data
-data2 <- subset(data, (G==0) | (G>2001)) # drops already and early-treated, similar to data used in CS
-data3 <- subset(data, G!=0) # drop never-treated (this is a "bad" choice)
+#-----------------------------------------------------------------------------
+# creat subsets of data used in chapter
+#-----------------------------------------------------------------------------
+# drops already and early-treated, similar to data used in CS
+data2 <- subset(data, (G==0) | (G>2001))
+
+# drop never-treated 
+data3 <- subset(data, G!=0)
+
+# additionally drop always-treated
 data4 <- subset(data3, G > 2001)
+
+# drop years 2004 or earlier
 data5 <- subset(data4, year > 2004)
 
 
+#-----------------------------------------------------------------------------
 # summary statistics
+#-----------------------------------------------------------------------------
 data2$fever_treated <- as.factor(data2$ever_treated)
 data2$emp100 <- data2$emp0A01_BS/100
 data2$pop1000 <- data2$pop/1000
@@ -45,6 +67,13 @@ datasummary_balance(~ fever_treated,
                     output="latex")
 
 
+#-----------------------------------------------------------------------------
+# Callaway and Sant'Anna estimates
+# * Different results come from changing the `data` argument among
+#   `data`, `data2`, `data3`, `data4`, and `data5`; from changing
+#   the `base_period` among "varying" and "universal"; and the
+#   `control_group` among "nevertreated" and "notyettreated".
+#-----------------------------------------------------------------------------
 cs_res <- att_gt(yname="lemp",
                  tname="year",
                  idname="countyreal",
@@ -53,16 +82,25 @@ cs_res <- att_gt(yname="lemp",
                  base_period ="varying",
                  control_group="nevertreated",
                  cband=FALSE)
+
+# print att_gt results
 cs_res
 
+# event study aggregation
 cs_dyn <- aggte(cs_res, type="dynamic")
+cs_dyn
+
+# overall treatment effect aggregation
 cs_o <- aggte(cs_res, type="group")
 cs_o
 
+# generates plots of att_gt, event study, and overall treatment effect
 ggdid(cs_res, ylim=c(-.18,.1))
 ggdid(cs_dyn)
 ggdid(cs_o)
 
+# results under conditional parallel trends
+# * can apply same options here as for unconditional parallel trends above 
 csX_res <- att_gt(yname="lemp",
                  tname="year",
                  idname="countyreal",
