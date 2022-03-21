@@ -6,6 +6,7 @@ mw_data2.RData
 mw_data.RData
 nhgis_data
 process_*.R
+process_qcew_income_data.R
 qcew_income_data
 setup_data.R
 sim_data.RDS
