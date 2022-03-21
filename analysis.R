@@ -14,6 +14,9 @@ library(bacondecomp)
 library(ggplot2)
 library(modelsummary)
 library(HonestDiD)
+library(pte)
+library(tidyr)
+library(dplyr)
 
 #-----------------------------------------------------------------------------
 # load/process data
@@ -181,6 +184,59 @@ ggplot(data=bacon_res,
   scale_color_discrete(name="") + 
   theme_classic() + 
   theme(legend.position="bottom")
+
+#-----------------------------------------------------------------------------
+# imputation
+#
+# Note: this uses custom code (mainly to make it be more compatible
+# with other code in the chapter), but `didimputation` and `did2s`
+# are likely to be better options in actual applications.
+#-----------------------------------------------------------------------------
+
+# load code to run imputation
+source("imputation.R")
+
+# for imputation with `data4`, need to modify it slightly
+data4_imp <- data4
+data4_imp$G[data4_imp$G==2007] <- 0
+data4_imp <- subset(data4_imp, year < 2007)
+data4_imp <- droplevels(data4_imp)
+
+imp2 <- pte(yname="lemp",
+            tname="year",
+            idname="countyreal",
+            gname="G",
+            data=data2,
+            setup_pte_fun=setup_pte_basic,
+            subset_fun=keep_all_subset,
+            attgt_fun=imputation_attgt,
+            xformla=~as.factor(region)*as.factor(year) + lpop + lavg_pay,
+            biters=100,
+            cl=1)
+
+summary(imp2)
+ggpte(imp2)
+
+#-----------------------------------------------------------------------------
+# Callaway and Sant'Anna build-the-trend
+#-----------------------------------------------------------------------------
+
+source("build_the_trend.R")
+
+btt2 <- pte(yname="lemp",
+            tname="year",
+            idname="countyreal",
+            gname="G",
+            data=data2,
+            setup_pte_fun=setup_pte_basic,
+            subset_fun=keep_all_subset,
+            attgt_fun=build_the_trend_attgt,
+            xformla=~1,
+            biters=100,
+            cl=1)
+
+summary(btt2)
+ggpte(btt2)
 
 
 #-----------------------------------------------------------------------------

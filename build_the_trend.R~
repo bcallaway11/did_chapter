@@ -1,12 +1,3 @@
-#-----------------------------------------------------------------------------
-#
-# This file contains functions for computing the build-the-trend
-# version of Callaway and Sant'Anna discussed in the chapter
-# using the infrastructure of the `pte` package
-#
-#-----------------------------------------------------------------------------
-
-#' Function to compute the build the trend estimator
 build_the_trend_attgt <- function(gt_data, ...) {
  
   treat_data <- subset(gt_data, D==1)
@@ -26,10 +17,7 @@ build_the_trend_attgt <- function(gt_data, ...) {
 
   tlist <- unique(untreat_data$period)
   tlist <- tlist[tlist <= this.period]
-  # handle pre- and post-periods slightly differently;
-  # in pre-treatment periods, only use up to the current period
-  # as pre-periods
-  nt_pre <- sum(tlist < min(g,this.period)) 
+  nt_pre <- sum(tlist < min(g,this.period)) # handle pre- and post-periods slightly differently; in pre-treatment periods, only use up to the current period as pre-periods
   pre_count <- 2
   att2 <- 0
   
@@ -42,7 +30,25 @@ build_the_trend_attgt <- function(gt_data, ...) {
     dY <- subset(untreat_data, period==tlist[tt] & id %in% dY_ids)$Y - subset(untreat_data, period==tlist[tt-1] & id %in% dY_ids)$Y
     att2 <- att2 + mean(dY)*btt_w
   }
-    
+
+  #if (g==2006 & this.period == 2005) browser()
+  
+  ## # alternative version as average of marcus and sant'anna using all base periods
+  ## base_period_idx <- which((tlist < g) & (tlist < this.period)) # use only prior periods too
+  ## this_period_idx <- which(tlist==this.period)
+  ## cf_path2_by_base_period <- sapply(base_period_idx, function(base_period) {
+  ##   this.att3 <- 0
+  ##   for (tt in (base_period+1):this_period_idx) {
+  ##     dY_ids <- subset(untreat_data, period %in% tlist[tt])$id
+  ##     dY <- subset(untreat_data, period==tlist[tt] & id %in% dY_ids)$Y - subset(untreat_data, period==tlist[tt-1] & id %in% dY_ids)$Y
+  ##     this.att3 <- this.att3 + mean(dY)
+  ##   }
+  ##   this.att3
+  ## })
+  ## cf_path2 <- mean(cf_path2_by_base_period)
+
+  ## if ( !(isTRUE(all.equal(cf_path2, att2)))) browser()
+         
   attgt <- list()
   attgt$ATT <- att1 - att2
   attgt_noif(attgt = attgt)
