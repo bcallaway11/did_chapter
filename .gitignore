@@ -1,0 +1,12 @@
+*.pdf
+*.dta
+county_income_data.RData
+county_pop_data.RData
+mw_data2.RData
+mw_data.RData
+nhgis_data
+process_nhgis_data.R
+process_qcew_income_data
+qcew_income_data
+setup_data.R
+sim_data.RDS
