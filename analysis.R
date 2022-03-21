@@ -33,6 +33,7 @@ data$region <- 1*(data$censusdiv==1 | data$censusdiv==2) + 2*(data$censusdiv==3 
     3*(data$censusdiv==5 | data$censusdiv==6 | data$censusdiv==7) + 4*(data$censusdiv==8 | data$censusdiv==9)
 data$region <- as.factor(data$region)
 data$ever_treated <- 1*(data$G != 0)
+data$id <- data$countyreal
 
 #-----------------------------------------------------------------------------
 # creat subsets of data used in chapter
@@ -79,7 +80,7 @@ cs_res <- att_gt(yname="lemp",
                  idname="countyreal",
                  gname="G",
                  data=data2,
-                 base_period ="varying",
+                 base_period ="universal",
                  control_group="nevertreated",
                  cband=FALSE)
 
@@ -199,7 +200,7 @@ twfe_es <- feols(lemp ~ i(e, ever_treated, ref=-1) | countyreal + year,
 summary(twfe_es)
 iplot(twfe_es)
 
-# try to construct event study regression weigths
+# replicate event study using more primitive calculations
 Dit <- i(this_data$e, this_data$ever_treated, ref=-1)
 
 ddotDit <- demean(Dit, this_data[,c("countyreal", "year")])
@@ -209,90 +210,47 @@ Yit <- this_data$lemp
 bete <- solve(t(ddotDit)%*%Dit) %*% t(ddotDit) %*% Yit
 bete
 
-# weight reg
-e <- 0# pick which event time
-g <- 2007
-es_weight_outcome <- 1*( (this_data$G == g) & (g+e == this_data$year))
+# load code for computing regression weights
+source("event_study_reg_weights.R")
 
+# should replicate bete
+es_weights_reg()
+
+# get weights for particular groups across event times
+e <- 5
+g <- 2002
+es_weights(g,e,weightonly=TRUE)
+
+# compare to regression from Sun & Abraham
+es_weight_outcome <- 1*( (this_data$G == g) & (g+e == this_data$year))
 es_weight_e <- solve(t(ddotDit)%*%Dit) %*% t(ddotDit) %*% es_weight_outcome
 es_weight_e
 
-# get the att_gt's
-attgt_idx <- cs_res$group == g & cs_res$t == g+e
-attgt <- cs_res$att[attgt_idx]
-cs_dyn$att.egt[cs_dyn$egt==e]
 
-get_attgt <- function(g,e) {
-  attgt_idx <- cs_res$group == g & cs_res$t == g+e
-  if( !(any(attgt_idx)) ) return(0)
-  attgt <- cs_res$att[attgt_idx]
-  attgt
-}
+# compute underlying weights for a particular event time
+eval.idx <- which(e.seq==e)
+all_eg <- expand.grid(e.seq, glist)
+colnames(all_eg) <- c("e", "g")
+e_weight <- sapply(1:nrow(eg), function(i) es_weights(g=all_eg$g[i], e=all_eg$e[i], weightonly=TRUE)[eval.idx])
+e_att <- sapply(1:nrow(eg), function(i) es_weights(g=all_eg$g[i], e=all_eg$e[i], weightonly=FALSE)[eval.idx])
+all_eg <- cbind.data.frame(all_eg, weight=e_weight, att=e_att) 
+e_weight_this_e <- all_eg[all_eg$e==e,]
+e_weight_other_e <- all_eg[all_eg$e!=e,]
 
-p_g <- function(g) {
-  mean(this_data$G==g)
-}
+# check that weights on "correct" e sum to 1
+sum(e_weight_this_e$weight)
 
-tlist <- unique(this_data$year)
-nT <- length(tlist)
-he <- function(e,g,t) {
-  ( 1*(g+e==t) - 1*( (g+e) %in% tlist )/nT) * (g != 0)
-}
-e.seq <- sort(unique(this_data$e[this_data$e != -1]))
-hinner <- function(g,t) {
-  sapply(e.seq, he, g=g,t=t)
-}
-h <- function(g,t) {
-  hinner(g,t) - apply(sapply(glist, function(gg) hinner(gg,t)*p_g(gg)), 1, sum)
-}
+# check that weights on "incorrect" e sum to 0
+sum(e_weight_other_e$weight)
 
-n <- length(unique(this_data$countyreal))
-inner <- function(g,e,weightonly=FALSE) {
-  part1 <- solve(t(ddotDit)%*%Dit/n)
-  part2 <- as.matrix(h(g,g+e))*( (g+e) %in% tlist )*(g!=0)*p_g(g)
-  if (!weightonly) part2 <- part2*get_attgt(g,e)
-  part1 %*% part2
-  #browser()
-  #1+1
-  ## # sa weights
-  ## # this appears to work...
-  ## data2$weight_outcome <- data2$ever_treated*(data2$e==e)*(data2$G==g)
-  ## if(get_attgt(g,e)==0) return(as.matrix(rep(0, length(e.seq))))
-  ## as.matrix(coef(feols( weight_outcome ~ i(e, ever_treated, ref=-1) | countyreal + year,
-  ##               data=data2)))*get_attgt(g,e)
-}
-
-glist <- sort(unique(this_data$G))[-1]
-coff <- function() {
-  out <- matrix(data=0, nrow=length(e.seq))
-  for (e in e.seq) {
-    for (g in glist) {
-      out <- out + inner(g,e)
-      #for (t in tlist) {
-      #  out <- out + inner(e,g,t)
-      #}
-    }
-  }
-  out
-}
-coff()
-
-eval <- 5
-eval.idx <- which(e.seq==eval)
-eg <- expand.grid(e.seq, glist)
-e_weight <- sapply(1:nrow(eg), function(i) inner(eg[i,2], eg[i,1], weightonly=TRUE)[eval.idx])
-sum(e_weight[eg[,1]==eval])
-sum(e_weight[eg[,1]!=eval])
-max(abs(e_weight[eg[,1] != eval]))
+# find large weights on "incorrect" e
+e_weight_other_e[abs(e_weight_other_e$weight) > .1,]
 
 
 
-# weight reg from SA
-coef(feols( I(ever_treated*(e==0)*(G==2007)) ~ i(e, ever_treated, ref=-1) | countyreal + year,
-                 data=this_data))
 
-
-# put on same plot as callaway and santanna
+# event study plot reported in chapter that includes Callaway &
+# Sant'Anna, event study regression using `data` and `data2`
 plot_df1 <- cbind.data.frame(att=cs_dyn$att.egt, ciL=cs_dyn$att.egt-1.96*cs_dyn$se.egt, ciU=cs_dyn$att.egt+1.96*cs_dyn$se.egt, e=cs_dyn$egt, type="CS")
 twfe_plot_data <- iplot(twfe_es)
 plot_df2 <- cbind.data.frame(att=twfe_plot_data$prms$estimate,
@@ -319,116 +277,46 @@ ggplot(data=plot_df, mapping=aes(x=e,y=att,color=type,fill=type)) +
   theme_classic() +
   scale_x_continuous(breaks=seq(-6,6)) +
   theme(legend.position="bottom", legend.title=element_blank()) 
-#ggsave("cs_twfe_es_comparison.pdf", height=5, width=8)
+
 
 # twfe event study with covariates
-twfeX <- feols(lemp ~ treated + lpop + lavg_pay | countyreal + year + region^year,
-               data=data)
-summary(twfeX)
-
 twfeX_es <- feols(lemp ~ i(e, ref=-1) + lpop + lavg_pay  | countyreal + year + region^year,
-                 data=data)
+                 data=this_data)
 summary(twfeX_es)
 iplot(twfeX_es)
 
 
-
 #-----------------------------------------------------------------------------
-#
-# now, let's drop the never-treated group
-#
-#-----------------------------------------------------------------------------
-data_no_untreated <- subset(data, G > 0)
-
-nu_twfe <- feols(lemp ~ treated | countyreal + year,
-              data=data_no_untreated)
-summary(nu_twfe)
-
-nu_twfe_es <- feols(lemp ~ i(e, ref=-1) | countyreal + year,
-                 data=data_no_untreated)
-summary(nu_twfe_es)
-iplot(nu_twfe_es)
-
-
-# twfe event study with covariates
-nu_twfeX <- feols(lemp ~ treated + lpop + lavg_pay  | countyreal + year + region^year,
-               data=data_no_untreated)
-summary(nu_twfeX)
-
-nu_twfeX_es <- feols(lemp ~ i(e, ref=-1) + lpop + lavg_pay  | countyreal + year + region^year,
-                 data=data_no_untreated)
-summary(nu_twfeX_es)
-iplot(nu_twfeX_es)
-
-
-#-----------------------------------------------------------------------------
-#
-# now, let's drop the already treated
-#
-#-----------------------------------------------------------------------------
-data_no_already_treated <- subset(data, (G==0) | (G>2002))
-
-nat_twfe <- feols(lemp ~ treated | countyreal + year,
-              data=data_no_already_treated)
-summary(nat_twfe)
-
-nat_twfe_es <- feols(lemp ~ i(e, ref=-1) | countyreal + year,
-                 data=data_no_already_treated)
-summary(nat_twfe_es)
-iplot(nat_twfe_es)
-
-
-# twfe event study with covariates
-nat_twfeX <- feols(lemp ~ treated + lpop + lavg_pay  | countyreal + year + region^year,
-               data=data_no_already_treated)
-summary(nat_twfeX)
-
-nat_twfeX_es <- feols(lemp ~ i(e, ref=-1) + lpop + lavg_pay  | countyreal + year + region^year,
-                 data=data_no_already_treated)
-summary(nat_twfeX_es)
-iplot(nat_twfeX_es)
-
-
-
-#-----------------------------------------------------------------------------
-#
 # honest did
-#
 #-----------------------------------------------------------------------------
 
-hd_rm <- honest_did(cs_dyn, type="relative_magnitude", Mbarvec=c(0.5,1,1.5,2), gridPoints=100, grid.lb=-.25, grid.ub=.25)
+# this is the relative magnitudes version of RR where Mbar
+# is the fraction of deviation relative to max observed in
+# pre-treatment periods.  this is what is reported in chapter.
+#
+# change `e` to get sensitivity analysis at different length
+# of exposure
+hd_rm <- honest_did(es=cs_dyn, type="relative_magnitude", Mbarvec=c(0.5,1,1.5,2), gridPoints=100, grid.lb=-.25, grid.ub=.25, e=0)
 
 createSensitivityPlot_relativeMagnitudes(hd_rm$robust_ci,
                                          hd_rm$orig_ci) +
   theme_classic() +
   scale_color_discrete("", labels=c("Original", "RR Bounds")) +
   theme(legend.position="bottom")
-#ggsave("rr_bounds.pdf", width=8, height=5)
 
-hd_lt <- honest_did(cs_dyn, type="relative_magnitude", Mbarvec=c(0.5,1,1.5,2), bound="deviation from linear trend", gridPoints=100, grid.lb=-.25, grid.ub=.25)
+
+# alternatively, can replace maximum violation of parallel trends
+# with maximum violation of linear trends, which is here...
+# this is not reported in chapter
+hd_lt <- honest_did(es=cs_dyn, type="relative_magnitude", Mbarvec=c(0.5,1,1.5,2), bound="deviation from linear trend", gridPoints=100, grid.lb=-.25, grid.ub=.25, e=0)
 createSensitivityPlot_relativeMagnitudes(hd_lt$robust_ci,
                                          hd_lt$orig_ci) + theme_classic()
 
-hd_rm1 <- honest_did(es=cs_dyn, type="relative_magnitude", Mbarvec=c(0.5,1,1.5,2), e=1, gridPoints=100, grid.lb=-1, grid.ub=1)
-createSensitivityPlot_relativeMagnitudes(hd_rm1$robust_ci,
-                                         hd_rm1$orig_ci) + theme_classic()
-
-hd_rm2 <- honest_did(es=cs_dyn, type="relative_magnitude", Mbarvec=c(0.5,1,1.5,2), e=2, gridPoints=100, grid.lb=-1, grid.ub=1)
-createSensitivityPlot_relativeMagnitudes(hd_rm2$robust_ci,
-                                         hd_rm2$orig_ci) + theme_classic()
-
-hd_lt2 <- honest_did(es=cs_dyn, type="relative_magnitude", Mbarvec=c(0.5,1,1.5,2), bound="deviation from linear trend", e=2, gridPoints=100, grid.lb=-1, grid.ub=1)
-createSensitivityPlot_relativeMagnitudes(hd_lt2$robust_ci,
-                                         hd_lt2$orig_ci) + theme_classic()
-
-
-
-hd_smooth <- honest_did(cs_dyn, type="smoothness")
-createSensitivityPlot(hd_lt$robust_ci,
-                      hd_lt$orig_ci)
-
-hd_smooth2 <- honest_did(es=cs_dyn, e=2, type="smoothness")
-createSensitivityPlot(hd_lt2$robust_ci,
-                      hd_lt2$orig_ci)
-
+# alternatively, RR also discuss smoothness restrictions; I don't
+# think that this is related to violations in pre-treatment periods
+# but rather how much linear trends can be violated, here is code...
+# this is not reported in chapter
+hd_smooth <- honest_did(es=cs_dyn, type="smoothness",e=0)
+createSensitivityPlot(hd_smooth$robust_ci,
+                      hd_smooth$orig_ci)
 
