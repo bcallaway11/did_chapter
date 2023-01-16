@@ -83,7 +83,7 @@ cs_res <- att_gt(yname="lemp",
                  idname="countyreal",
                  gname="G",
                  data=data2,
-                 base_period ="universal",
+                 base_period ="varying",
                  control_group="nevertreated",
                  cband=FALSE)
 
@@ -99,7 +99,7 @@ cs_o <- aggte(cs_res, type="group")
 cs_o
 
 # generates plots of att_gt, event study, and overall treatment effect
-ggdid(cs_res, ylim=c(-.18,.1))
+ggdid(cs_res, ylim=c(-.18,.12), ncol=2)
 ggdid(cs_dyn)
 ggdid(cs_o)
 

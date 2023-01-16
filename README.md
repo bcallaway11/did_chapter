@@ -1,4 +1,4 @@
-This repository contains the code to replicate the application from "Modern Approaches to Difference-in-Differences".   
+This repository contains the code to replicate the application from "Differences-in-Differences for Policy Evaluation" which is forthcoming in the *Handbook of Labor, Human Resources and Population Economics*.
 
 * `analysis.R` main file
 
